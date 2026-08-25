@@ -61,6 +61,11 @@ import {
 } from "../reader-annotations";
 import { chatGptAppUrl, chatGptDraftUrl } from "../reader-chatgpt";
 import {
+  parseReaderChromeEvent,
+  readerChromePressScript,
+  readerChromeScrollScript,
+} from "../reader-chrome";
+import {
   EPUB_RESTORE_COMPLETE_MESSAGE,
   epubScrollRestoreScript,
   resolveEpubPosition,
@@ -93,6 +98,7 @@ export function ReaderScreen({
   );
   const isReady = useLibrary((store) => store.isReady);
   const primary = useColor("primary");
+  const [chromeVisible, setChromeVisible] = useState(true);
   if (!isReady) return <ReaderLoading color={primary} />;
   if (!book) {
     return (
@@ -103,11 +109,19 @@ export function ReaderScreen({
   }
   return (
     <View className="bg-background flex-1">
-      <Stack.Screen options={{ headerLargeTitle: false, title: book.title }} />
+      <Stack.Screen
+        options={{
+          headerLargeTitle: false,
+          headerShown: chromeVisible,
+          title: book.title,
+        }}
+      />
       <BookReader
         book={book}
+        chromeVisible={chromeVisible}
         destination={destination}
         key={`${scope}:${book.id}`}
+        onToggleChrome={() => setChromeVisible((visible) => !visible)}
         scope={scope}
       />
     </View>
@@ -116,11 +130,15 @@ export function ReaderScreen({
 
 function BookReader({
   book,
+  chromeVisible,
   destination,
+  onToggleChrome,
   scope,
 }: {
   book: BookRecord;
+  chromeVisible: boolean;
   destination?: ReaderDestination;
+  onToggleChrome: () => void;
   scope: BookScope;
 }) {
   const [progress] = useState(() =>
@@ -145,7 +163,9 @@ function BookReader({
   return (
     <EpubReader
       book={book}
+      chromeVisible={chromeVisible}
       destination={destination}
+      onToggleChrome={onToggleChrome}
       progress={progress}
       scope={scope}
     />
@@ -310,12 +330,16 @@ function PdfDocument({
 // eslint-disable-next-line complexity, max-lines-per-function -- Reader state intentionally stays together to coordinate WebView restoration, caching, navigation, and durable progress.
 function EpubReader({
   book,
+  chromeVisible,
   destination,
+  onToggleChrome,
   progress: savedProgress,
   scope,
 }: {
   book: BookRecord;
+  chromeVisible: boolean;
   destination?: ReaderDestination;
+  onToggleChrome: () => void;
   progress: ReadingProgress | undefined;
   scope: BookScope;
 }) {
@@ -361,6 +385,7 @@ function EpubReader({
   const [pendingSectionIndex, setPendingSectionIndex] = useState<number>();
   const section = sections[sectionIndex];
   const sectionProgress = useRef(new Map<string, number>());
+  const readerViewport = useRef<View>(null);
   const webViews = useRef(new Map<string, WebView>());
   const loadedDocuments = useRef(new Set<string>());
   const pendingNavigation = useRef<{ index: number; key: string } | null>(null);
@@ -376,6 +401,12 @@ function EpubReader({
         }
       : undefined,
   );
+  const pendingChromeAnchor = useRef<{
+    documentKey: string;
+    scrollOffset: number;
+    viewportY: number;
+  } | null>(null);
+  const latestScrollOffset = useRef(0);
   const isRestoring = useRef(true);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
@@ -523,7 +554,11 @@ function EpubReader({
   }
   return (
     <View className="flex-1">
-      <View className="flex-1">
+      <View
+        className="flex-1"
+        onLayout={restoreChromeScrollAnchor}
+        ref={readerViewport}
+      >
         {/* eslint-disable-next-line complexity, max-lines-per-function -- Each prepared WebView owns its native lifecycle callbacks. */}
         {mountedIndices.map((index) => {
           const renderedSection = sections[index];
@@ -564,6 +599,9 @@ function EpubReader({
                   webViews.current
                     .get(key)
                     ?.injectJavaScript(readerSelectionObserverScript());
+                  webViews.current
+                    .get(key)
+                    ?.injectJavaScript(readerChromePressScript());
                   webViews.current
                     .get(key)
                     ?.injectJavaScript(
@@ -618,6 +656,11 @@ function EpubReader({
                           scrollToReaderSearchResultScript(searchTarget),
                         );
                     }
+                    return;
+                  }
+                  if (active && parseReaderChromeEvent(nativeEvent.data)) {
+                    setControlsExpanded(false);
+                    toggleChrome();
                     return;
                   }
                   const event = parseReaderAnnotationEvent(nativeEvent.data);
@@ -694,6 +737,7 @@ function EpubReader({
                 }}
                 onScroll={({ nativeEvent }) => {
                   if (!active) return;
+                  latestScrollOffset.current = nativeEvent.contentOffset.y;
                   const maximum =
                     nativeEvent.contentSize.height -
                     nativeEvent.layoutMeasurement.height;
@@ -753,6 +797,7 @@ function EpubReader({
           scope === "library" ? () => setAnnotationsVisible(true) : undefined
         }
         scope={scope}
+        visible={chromeVisible}
       />
       <ChapterBrowserModal
         currentIndex={sectionIndex}
@@ -843,6 +888,39 @@ function EpubReader({
     setPendingSectionIndex(index);
   }
 
+  function toggleChrome() {
+    const viewport = readerViewport.current;
+    if (!viewport) {
+      onToggleChrome();
+      return;
+    }
+    viewport.measureInWindow((_x, viewportY) => {
+      pendingChromeAnchor.current = {
+        documentKey,
+        scrollOffset: latestScrollOffset.current,
+        viewportY,
+      };
+      onToggleChrome();
+    });
+  }
+
+  function restoreChromeScrollAnchor() {
+    const anchor = pendingChromeAnchor.current;
+    const viewport = readerViewport.current;
+    if (!anchor || !viewport) return;
+    requestAnimationFrame(() => {
+      viewport.measureInWindow((_x, viewportY) => {
+        if (pendingChromeAnchor.current !== anchor) return;
+        pendingChromeAnchor.current = null;
+        const offset = anchor.scrollOffset + viewportY - anchor.viewportY;
+        latestScrollOffset.current = Math.max(0, offset);
+        webViews.current
+          .get(anchor.documentKey)
+          ?.injectJavaScript(readerChromeScrollScript(offset));
+      });
+    });
+  }
+
   function commitSectionChange(index: number) {
     const nextSection = sections[index];
     if (!nextSection) return;
@@ -898,6 +976,7 @@ function ReaderControls({
   onShowAnnotations,
   onShowChapters,
   scope,
+  visible = true,
 }: {
   book: BookRecord;
   annotationCount?: number;
@@ -908,8 +987,10 @@ function ReaderControls({
   onShowAnnotations?: () => void;
   onShowChapters?: () => void;
   scope: BookScope;
+  visible?: boolean;
 }) {
   const router = useRouter();
+  if (!visible) return null;
 
   return (
     <ChapterControlsPanel

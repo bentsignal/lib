@@ -19,7 +19,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     },
   },
   ios: {
-    buildNumber: "46",
+    buildNumber: "48",
     bundleIdentifier: "com.bentsignal.lib",
     supportsTablet: true,
     icon: "./assets/icons/lib.icon",
@@ -31,7 +31,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     },
   },
   android: {
-    versionCode: 46,
+    versionCode: 48,
     package: "com.bentsignal.lib",
     icon: "./assets/icon.png",
     adaptiveIcon: {
