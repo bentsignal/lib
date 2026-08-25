@@ -19,7 +19,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     },
   },
   ios: {
-    buildNumber: "35",
+    buildNumber: "46",
     bundleIdentifier: "com.bentsignal.lib",
     supportsTablet: true,
     icon: "./assets/icons/lib.icon",
@@ -31,7 +31,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     },
   },
   android: {
-    versionCode: 35,
+    versionCode: 46,
     package: "com.bentsignal.lib",
     icon: "./assets/icon.png",
     adaptiveIcon: {
@@ -55,6 +55,14 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     ],
     "expo-system-ui",
     "expo-font",
+    [
+      "expo-image-picker",
+      {
+        cameraPermission: false,
+        microphonePermission: false,
+        photosPermission: "Allow lib to choose a photo for a book cover.",
+      },
+    ],
     "expo-sharing",
     "expo-status-bar",
     [

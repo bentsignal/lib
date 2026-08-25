@@ -10,6 +10,8 @@ import { confirmDeleteNote } from "./confirm-delete-note";
 
 export function AnnotationNoteModal({
   annotation,
+  chapterDraft,
+  context,
   draft,
   onClose,
   onDelete,
@@ -17,6 +19,8 @@ export function AnnotationNoteModal({
   onUpdate,
 }: {
   annotation?: ReaderAnnotation;
+  chapterDraft?: string;
+  context?: string;
   draft?: ReaderSelectionMessage;
   onClose: () => void;
   onDelete: (id: string) => void;
@@ -34,21 +38,36 @@ export function AnnotationNoteModal({
       />
     );
   }
+  if (chapterDraft) {
+    return (
+      <NoteEditor
+        context={chapterDraft}
+        key={chapterDraft}
+        onClose={onClose}
+        onSave={onSave}
+        title="Note"
+      />
+    );
+  }
   if (!annotation) return null;
   return (
     <NoteEditor
+      context={annotation.kind === "chapter-note" ? context : undefined}
       initialValue={annotation.note ?? ""}
       key={`${annotation.id}:${annotation.updatedAt}`}
       onClose={onClose}
       onDelete={() => onDelete(annotation.id)}
       onSave={(note) => onUpdate(annotation.id, note)}
-      quote={annotation.selectedText}
+      quote={
+        annotation.kind === "chapter-note" ? undefined : annotation.selectedText
+      }
       title="Edit note"
     />
   );
 }
 
 function NoteEditor({
+  context,
   initialValue = "",
   onClose,
   onDelete,
@@ -56,11 +75,12 @@ function NoteEditor({
   quote,
   title,
 }: {
+  context?: string;
   initialValue?: string;
   onClose: () => void;
   onDelete?: () => void;
   onSave: (note: string) => void;
-  quote: string;
+  quote?: string;
   title: string;
 }) {
   const note = useRef(initialValue);
@@ -96,18 +116,12 @@ function NoteEditor({
           keyboardDismissMode="interactive"
           keyboardShouldPersistTaps="handled"
         >
-          <View
-            className="rounded-2xl px-4 py-3"
-            style={{ backgroundColor: muted }}
-          >
-            <Text
-              className="text-sm leading-5"
-              numberOfLines={4}
-              style={{ color: mutedForeground }}
-            >
-              “{quote}”
-            </Text>
-          </View>
+          <NoteContext
+            background={muted}
+            color={mutedForeground}
+            context={context}
+            quote={quote}
+          />
           <TextInput
             autoFocus={!initialValue}
             className="mt-4 min-h-44 rounded-2xl border p-4 text-[16px]"
@@ -133,6 +147,31 @@ function NoteEditor({
         </KeyboardAwareScrollView>
       </SafeAreaView>
     </Modal>
+  );
+}
+
+function NoteContext({
+  background,
+  color,
+  context,
+  quote,
+}: {
+  background: string;
+  color: string;
+  context?: string;
+  quote?: string;
+}) {
+  const text = quote ? `“${quote}”` : context;
+  if (!text) return null;
+  return (
+    <View
+      className="rounded-2xl px-4 py-3"
+      style={{ backgroundColor: background }}
+    >
+      <Text className="text-sm leading-5" numberOfLines={4} style={{ color }}>
+        {text}
+      </Text>
+    </View>
   );
 }
 

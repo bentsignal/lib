@@ -15,11 +15,13 @@ import { useColor } from "~/hooks/use-color";
 
 export function AnnotationBrowserModal({
   annotations,
+  onAddNote,
   onClose,
   onSelect,
   visible,
 }: {
   annotations: ReaderAnnotation[];
+  onAddNote?: () => void;
   onClose: () => void;
   onSelect: (annotation: ReaderAnnotation) => void;
   visible: boolean;
@@ -45,10 +47,19 @@ export function AnnotationBrowserModal({
           className="flex-row items-center justify-between border-b px-5 py-3"
           style={{ borderColor: border }}
         >
-          <Text className="text-xl font-semibold" style={{ color: foreground }}>
+          <HeaderAction onPress={onAddNote} primary={primary} />
+          <Text
+            className="min-w-0 flex-1 text-center text-[17px] font-semibold"
+            numberOfLines={1}
+            style={{ color: foreground }}
+          >
             Notes & highlights
           </Text>
-          <Pressable accessibilityRole="button" onPress={onClose}>
+          <Pressable
+            accessibilityRole="button"
+            className="w-[72px] items-end"
+            onPress={onClose}
+          >
             <Text
               className="text-[16px] font-semibold"
               style={{ color: primary }}
@@ -91,6 +102,29 @@ export function AnnotationBrowserModal({
         />
       </SafeAreaView>
     </Modal>
+  );
+}
+
+function HeaderAction({
+  onPress,
+  primary,
+}: {
+  onPress: (() => void) | undefined;
+  primary: string;
+}) {
+  if (!onPress) return <View className="w-[72px]" />;
+  return (
+    <Pressable
+      accessibilityLabel="New note"
+      accessibilityRole="button"
+      className="w-[72px] flex-row items-center gap-1 active:opacity-60"
+      onPress={onPress}
+    >
+      <SymbolView name="square.and.pencil" size={14} tintColor={primary} />
+      <Text className="text-[16px] font-semibold" style={{ color: primary }}>
+        New
+      </Text>
+    </Pressable>
   );
 }
 
@@ -190,7 +224,7 @@ function AnnotationRow({
   onPress: (annotation: ReaderAnnotation) => void;
   primary: string;
 }) {
-  const kindLabel = annotation.kind === "note" ? "Note" : "Highlight";
+  const kindLabel = annotationKindLabel(annotation);
   return (
     <Pressable
       accessibilityRole="button"
@@ -204,16 +238,35 @@ function AnnotationRow({
       >
         {kindLabel}
       </Text>
-      <Text
-        className="mt-2 text-[15px] leading-6"
-        numberOfLines={3}
-        style={{ color: foreground }}
-      >
-        “{annotation.selectedText}”
-      </Text>
+      <AnnotationPassage annotation={annotation} color={foreground} />
       <AnnotationNote color={mutedForeground} text={annotation.note} />
     </Pressable>
   );
+}
+
+function AnnotationPassage({
+  annotation,
+  color,
+}: {
+  annotation: ReaderAnnotation;
+  color: string;
+}) {
+  if (!annotation.selectedText) return null;
+  return (
+    <Text
+      className="mt-2 text-[15px] leading-6"
+      numberOfLines={3}
+      style={{ color }}
+    >
+      “{annotation.selectedText}”
+    </Text>
+  );
+}
+
+function annotationKindLabel(annotation: ReaderAnnotation) {
+  if (annotation.kind === "chapter-note") return "Note";
+  if (annotation.kind === "note") return "Passage note";
+  return "Highlight";
 }
 
 function AnnotationNote({

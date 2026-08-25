@@ -9,14 +9,11 @@ import {
 import { SymbolView } from "expo-symbols";
 
 import type { BookRecord } from "@lib/ebook-core";
-import { normalizeEpubWhitespace } from "@lib/ebook-core";
 
-import type { BookSearchDocument } from "../book-search";
 import type { BookScope } from "~/db/catalog";
 import { useColor } from "~/hooks/use-color";
-import { extractPdfTextAsync } from "~/native/lib-pdf";
 import { findBookTextMatches, nextMatchIndex } from "../book-search";
-import { getSourceFile } from "../library-storage";
+import { getBookSearchDocuments } from "../book-search-documents";
 
 export function BookSearchControls({
   book,
@@ -98,45 +95,36 @@ export function BookSearchControls({
 }
 
 function useSearchDocuments(book: BookRecord, scope: BookScope) {
-  const epubDocuments = epubSearchDocuments(book);
-  const [pdfDocuments, setPdfDocuments] = useState<BookSearchDocument[]>([]);
-  const [error, setError] = useState(false);
-  const [loading, setLoading] = useState(book.format === "pdf");
+  const key = `${scope}:${book.id}:${book.modifiedAt}`;
+  const [state, setState] = useState<{
+    documents: Awaited<ReturnType<typeof getBookSearchDocuments>>;
+    error: boolean;
+    key: string;
+  }>({ documents: [], error: false, key: "" });
 
-  // eslint-disable-next-line no-restricted-syntax -- PDFKit text extraction is an asynchronous native system that is synchronized with the active book.
+  // eslint-disable-next-line no-restricted-syntax -- The searchable document index is built asynchronously from the local source book.
   useEffect(() => {
-    if (book.format !== "pdf") return;
     let active = true;
-    void pdfDocumentsFor(book, scope)
-      .then((documents) => {
-        if (active) setPdfDocuments(documents);
+    void getBookSearchDocuments(book, scope)
+      .then((nextDocuments) => {
+        if (active) {
+          setState({ documents: nextDocuments, error: false, key });
+        }
       })
       .catch(() => {
-        if (active) setError(true);
-      })
-      .finally(() => {
-        if (active) setLoading(false);
+        if (active) setState({ documents: [], error: true, key });
       });
     return () => {
       active = false;
     };
-  }, [book, scope]);
+  }, [book, key, scope]);
 
+  const current = state.key === key;
   return {
-    documents: book.format === "pdf" ? pdfDocuments : epubDocuments,
-    error,
-    loading,
+    documents: current ? state.documents : [],
+    error: current && state.error,
+    loading: !current,
   };
-}
-
-function epubSearchDocuments(book: BookRecord) {
-  if (book.format !== "epub") return new Array<BookSearchDocument>();
-  return (book.epubLocations ?? []).map((location, index) => ({
-    position: index + 1,
-    text:
-      normalizeEpubWhitespace(location.excerpt) ||
-      normalizeEpubWhitespace(location.title),
-  }));
 }
 
 function SearchLoadingIndicator({
@@ -281,16 +269,3 @@ function searchSummary({
 function loadingSummary(format: BookRecord["format"]) {
   return format === "pdf" ? "Indexing PDF…" : "Searching…";
 }
-
-function pdfDocumentsFor(book: BookRecord, scope: BookScope) {
-  const key = `${scope}:${book.id}`;
-  const cached = pdfDocumentCache.get(key);
-  if (cached) return cached;
-  const documents = extractPdfTextAsync(getSourceFile(book, scope).uri).then(
-    (pages) => pages.map((text, index) => ({ position: index + 1, text })),
-  );
-  pdfDocumentCache.set(key, documents);
-  return documents;
-}
-
-const pdfDocumentCache = new Map<string, Promise<BookSearchDocument[]>>();

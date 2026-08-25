@@ -33,6 +33,7 @@
     "expo-glass-effect": "~57.0.1",
     "expo-haptics": "~57.0.1",
     "expo-icon-handler": "^0.1.7",
+    "expo-image-picker": "~57.0.13",
     "expo-linking": "~57.0.6",
     "expo-router": "~57.0.13",
     "expo-sharing": "~57.0.12",

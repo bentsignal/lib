@@ -71,7 +71,7 @@ export const readerAnnotations = sqliteTable(
     createdAt: text("created_at").notNull(),
     endOffset: integer("end_offset").notNull(),
     id: text().primaryKey(),
-    kind: text({ enum: ["highlight", "note"] }).notNull(),
+    kind: text({ enum: ["chapter-note", "highlight", "note"] }).notNull(),
     note: text(),
     sectionId: text("section_id").notNull(),
     selectedText: text("selected_text").notNull(),

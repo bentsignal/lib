@@ -1,34 +1,58 @@
 import type { ViewToken } from "react-native";
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import { FlatList, Pressable, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Stack, useFocusEffect, useRouter } from "expo-router";
 import { SymbolView } from "expo-symbols";
 
 import type { BookRecord } from "@lib/ebook-core";
 
 import type { ReaderTheme } from "../epub-reader-cache";
+import { getReadingActivity } from "~/db/catalog";
 import { useColor } from "~/hooks/use-color";
+import {
+  getBookOpenActivity,
+  subscribeToBookOpenActivity,
+} from "../book-recency";
 import { BookCover } from "../components/book-cover";
 import {
   cancelScheduledEpubPreloads,
   scheduleVisibleEpubPreloads,
 } from "../epub-reader-cache";
 import { useLibrary } from "../library-context";
+import { libraryTopPadding, sortBooksByRecentOpen } from "../library-order";
 
 export function LibraryScreen() {
   const books = useLibrary((store) => store.books);
+  const [readingActivity, setReadingActivity] = useState(() =>
+    getBookOpenActivity(getReadingActivity()),
+  );
+  const [orderVersion, setOrderVersion] = useState(0);
   const isReady = useLibrary((store) => store.isReady);
+  const insets = useSafeAreaInsets();
   const background = useColor("background");
   const foreground = useColor("foreground");
   const muted = useColor("border");
   const readerTheme = { background, foreground, muted };
+  const orderedBooks = sortBooksByRecentOpen(books, readingActivity);
+  // eslint-disable-next-line no-restricted-syntax -- The hidden Library updates as soon as a reader records activity, before the user navigates back.
+  useEffect(
+    () =>
+      subscribeToBookOpenActivity(() => {
+        setReadingActivity(getBookOpenActivity(getReadingActivity()));
+        setOrderVersion((version) => version + 1);
+      }),
+    [],
+  );
   return (
     <View className="bg-background flex-1">
       <Stack.Screen options={{ headerShown: false }} />
       <LibraryContent
-        books={books}
+        books={orderedBooks}
         isReady={isReady}
+        orderVersion={orderVersion}
         readerTheme={readerTheme}
+        topInset={insets.top}
       />
     </View>
   );
@@ -37,14 +61,31 @@ export function LibraryScreen() {
 function LibraryContent({
   books,
   isReady,
+  orderVersion,
   readerTheme,
+  topInset,
 }: {
   books: BookRecord[];
   isReady: boolean;
+  orderVersion: number;
   readerTheme: ReaderTheme;
+  topInset: number;
 }) {
-  const router = useRouter();
+  const list = useRef<FlatList<BookRecord>>(null);
   const themeKey = `${readerTheme.background}:${readerTheme.foreground}:${readerTheme.muted}`;
+
+  // eslint-disable-next-line no-restricted-syntax -- Reset the already-hidden shelf before its newly opened book is presented at the top on return.
+  useEffect(() => {
+    if (orderVersion === 0) return;
+    const frame = requestAnimationFrame(() =>
+      list.current?.scrollToOffset({
+        animated: false,
+        offset: 0,
+      }),
+    );
+    return () => cancelAnimationFrame(frame);
+  }, [orderVersion, topInset]);
+
   function onViewableItemsChanged({
     viewableItems,
   }: {
@@ -58,16 +99,6 @@ function LibraryContent({
     );
   }
 
-  // eslint-disable-next-line no-restricted-syntax -- Route prefetch synchronizes Expo Router's native navigation cache with the visible library.
-  useEffect(() => {
-    const firstBook = books[0];
-    if (!firstBook) return;
-    router.prefetch({
-      pathname: "/book/[id]/read",
-      params: { id: firstBook.id },
-    });
-  }, [books, router]);
-
   useFocusEffect(function cancelPreloadsWhenLibraryBlurs() {
     return cancelScheduledEpubPreloads;
   });
@@ -77,9 +108,11 @@ function LibraryContent({
   }
   return (
     <FlatList
-      contentInsetAdjustmentBehavior="automatic"
+      ref={list}
+      contentInsetAdjustmentBehavior="never"
       columnWrapperClassName="gap-4"
       contentContainerClassName="gap-7 px-5 pb-32"
+      contentContainerStyle={{ paddingTop: libraryTopPadding(topInset) }}
       data={books}
       key={themeKey}
       keyExtractor={({ id }) => id}

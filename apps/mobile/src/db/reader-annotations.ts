@@ -39,6 +39,35 @@ export function addReaderAnnotation(annotation: NewReaderAnnotation) {
   return annotation.id;
 }
 
+export function addChapterNote({
+  bookId,
+  id,
+  note,
+  sectionId,
+}: {
+  bookId: string;
+  id: string;
+  note: string;
+  sectionId: string;
+}) {
+  const timestamp = new Date().toISOString();
+  db.insert(readerAnnotations)
+    .values({
+      bookId,
+      createdAt: timestamp,
+      endOffset: 0,
+      id,
+      kind: "chapter-note",
+      note,
+      sectionId,
+      selectedText: "",
+      startOffset: 0,
+      updatedAt: timestamp,
+    })
+    .run();
+  return id;
+}
+
 export function deleteReaderAnnotation(id: string) {
   db.delete(readerAnnotations).where(eq(readerAnnotations.id, id)).run();
 }
@@ -76,6 +105,7 @@ export function removeDuplicateReaderAnnotations(bookId: string) {
     .all();
   const seen = new Set<string>();
   for (const annotation of annotations) {
+    if (annotation.kind === "chapter-note") continue;
     const key = [
       annotation.sectionId,
       annotation.startOffset,

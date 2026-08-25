@@ -7,28 +7,39 @@ export function ReaderSecondaryActions({
   annotationCount = 0,
   onShowAnnotations,
   onShowChapters,
+  onShowOverview,
 }: {
   annotationCount?: number;
   onShowAnnotations?: () => void;
   onShowChapters?: () => void;
+  onShowOverview: () => void;
 }) {
   const primary = useColor("primary");
-  if (!onShowAnnotations && !onShowChapters) return null;
+  const primaryForeground = useColor("primary-foreground");
   return (
-    <View className="w-full flex-row gap-2">
+    <View className="w-full gap-2">
+      <View className="flex-row gap-2">
+        <ReaderAction
+          background={translucent(primary)}
+          foreground={primary}
+          label="Chapters"
+          onPress={onShowChapters}
+          systemImage="list.bullet"
+        />
+        <ReaderAction
+          background={translucent(primary)}
+          foreground={primary}
+          label={annotationCount > 0 ? `Saved ${annotationCount}` : "Saved"}
+          onPress={onShowAnnotations}
+          systemImage="highlighter"
+        />
+      </View>
       <ReaderAction
-        background={translucent(primary)}
-        foreground={primary}
-        label="Chapters"
-        onPress={onShowChapters}
-        systemImage="list.bullet"
-      />
-      <ReaderAction
-        background={translucent(primary)}
-        foreground={primary}
-        label={annotationCount > 0 ? `Saved ${annotationCount}` : "Saved"}
-        onPress={onShowAnnotations}
-        systemImage="highlighter"
+        background={primary}
+        foreground={primaryForeground}
+        label="More"
+        onPress={onShowOverview}
+        systemImage="book.closed"
       />
     </View>
   );
@@ -49,7 +60,7 @@ function ReaderAction({
   foreground: string;
   label: string;
   onPress?: () => void;
-  systemImage: "highlighter" | "list.bullet";
+  systemImage: "book.closed" | "highlighter" | "list.bullet";
 }) {
   if (!onPress) return null;
   return (

@@ -1,5 +1,13 @@
 import { useState } from "react";
-import { Alert, Pressable, Text, TextInput, View } from "react-native";
+import {
+  ActionSheetIOS,
+  Alert,
+  Platform,
+  Pressable,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { Redirect, Stack, useRouter } from "expo-router";
 
@@ -61,7 +69,11 @@ function BookEditor({ book, scope }: { book: BookRecord; scope: BookScope }) {
               ? updateBook(book.id, update)
               : updateImport(book.id, update)
           }
-          onChangeCover={() => void replaceBookCover(book.id, scope)}
+          onChangeCover={() =>
+            chooseCoverSource(
+              (source) => void replaceBookCover(book.id, scope, source),
+            )
+          }
           onRead={() =>
             router.push({
               pathname: "/book/[id]/read",
@@ -100,6 +112,28 @@ function BookEditor({ book, scope }: { book: BookRecord; scope: BookScope }) {
       </KeyboardAwareScrollView>
     </View>
   );
+}
+
+function chooseCoverSource(onChoose: (source: "files" | "photos") => void) {
+  if (Platform.OS === "ios") {
+    ActionSheetIOS.showActionSheetWithOptions(
+      {
+        cancelButtonIndex: 2,
+        options: ["Choose from Photos", "Choose from Files", "Cancel"],
+        title: "Change cover",
+      },
+      (index) => {
+        if (index === 0) onChoose("photos");
+        if (index === 1) onChoose("files");
+      },
+    );
+    return;
+  }
+  Alert.alert("Change cover", undefined, [
+    { text: "Photos", onPress: () => onChoose("photos") },
+    { text: "Files", onPress: () => onChoose("files") },
+    { style: "cancel", text: "Cancel" },
+  ]);
 }
 
 function LibraryBookActions({

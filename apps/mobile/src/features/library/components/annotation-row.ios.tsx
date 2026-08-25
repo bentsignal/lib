@@ -56,21 +56,34 @@ export function NativeAnnotationRow({
           >
             {annotationKindLabel(annotation)}
           </Text>
-          <Text
-            modifiers={[
-              font({ textStyle: "body" }),
-              foregroundStyle(foreground),
-              lineLimit(3),
-            ]}
-          >
-            {`“${annotation.selectedText}”`}
-          </Text>
+          <AnnotationPassage annotation={annotation} color={foreground} />
           <AnnotationNote color={mutedForeground} note={annotation.note} />
         </VStack>
         <Spacer />
         <Image color={mutedForeground} size={12} systemName="chevron.right" />
       </HStack>
     </Button>
+  );
+}
+
+function AnnotationPassage({
+  annotation,
+  color,
+}: {
+  annotation: ReaderAnnotation;
+  color: string;
+}) {
+  if (!annotation.selectedText) return null;
+  return (
+    <Text
+      modifiers={[
+        font({ textStyle: "body" }),
+        foregroundStyle(color),
+        lineLimit(3),
+      ]}
+    >
+      {`“${annotation.selectedText}”`}
+    </Text>
   );
 }
 
@@ -96,5 +109,6 @@ function AnnotationNote({
 }
 
 function annotationKindLabel(annotation: ReaderAnnotation) {
-  return annotation.kind === "note" ? "NOTE" : "HIGHLIGHT";
+  if (annotation.kind === "chapter-note") return "NOTE";
+  return annotation.kind === "note" ? "PASSAGE NOTE" : "HIGHLIGHT";
 }

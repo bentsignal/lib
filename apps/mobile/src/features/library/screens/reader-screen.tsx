@@ -25,6 +25,7 @@ import type {
   ReadingProgress,
 } from "~/db/catalog";
 import {
+  addChapterNote,
   addReaderAnnotation,
   deleteReaderAnnotation,
   deleteReaderHighlightsInRange,
@@ -36,6 +37,7 @@ import {
 } from "~/db/catalog";
 import { useColor } from "~/hooks/use-color";
 import { getPdfPageCountAsync, LibPdfView } from "~/native/lib-pdf";
+import { recordBookOpened } from "../book-recency";
 import { AnnotationBrowserModal } from "../components/annotation-browser-modal";
 import { AnnotationNoteModal } from "../components/annotation-note-modal";
 import { ChapterBrowserModal } from "../components/chapter-browser-modal";
@@ -55,6 +57,7 @@ import {
   parseReaderAnnotationEvent,
   readerSelectionObserverScript,
   readerSelectionScript,
+  scrollToReaderSearchResultScript,
 } from "../reader-annotations";
 import { chatGptAppUrl, chatGptDraftUrl } from "../reader-chatgpt";
 import {
@@ -65,7 +68,24 @@ import {
 
 /* eslint-disable max-lines */
 
-export function ReaderScreen({ id, scope }: { id: string; scope: BookScope }) {
+export interface ReaderDestination {
+  annotationId?: string;
+  location?: number;
+  occurrence?: number;
+  page?: number;
+  query?: string;
+  sectionId?: string;
+}
+
+export function ReaderScreen({
+  destination,
+  id,
+  scope,
+}: {
+  destination?: ReaderDestination;
+  id: string;
+  scope: BookScope;
+}) {
   const book = useLibrary((store) =>
     (scope === "library" ? store.books : store.imports).find(
       (item) => item.id === id,
@@ -84,36 +104,87 @@ export function ReaderScreen({ id, scope }: { id: string; scope: BookScope }) {
   return (
     <View className="bg-background flex-1">
       <Stack.Screen options={{ headerLargeTitle: false, title: book.title }} />
-      <BookReader book={book} scope={scope} />
+      <BookReader
+        book={book}
+        destination={destination}
+        key={`${scope}:${book.id}`}
+        scope={scope}
+      />
     </View>
   );
 }
 
-function BookReader({ book, scope }: { book: BookRecord; scope: BookScope }) {
+function BookReader({
+  book,
+  destination,
+  scope,
+}: {
+  book: BookRecord;
+  destination?: ReaderDestination;
+  scope: BookScope;
+}) {
   const [progress] = useState(() =>
     scope === "library" ? getReadingProgress(book.id) : undefined,
   );
+  // eslint-disable-next-line no-restricted-syntax -- Let the native push finish before the hidden Library reorders and resets its scroll position.
+  useEffect(() => {
+    if (scope !== "library") return;
+    const timer = setTimeout(() => recordBookOpened(book.id), 400);
+    return () => clearTimeout(timer);
+  }, [book.id, scope]);
   if (book.format === "pdf") {
-    return <PdfReader book={book} progress={progress} scope={scope} />;
+    return (
+      <PdfReader
+        book={book}
+        destination={destination}
+        progress={progress}
+        scope={scope}
+      />
+    );
   }
-  return <EpubReader book={book} progress={progress} scope={scope} />;
+  return (
+    <EpubReader
+      book={book}
+      destination={destination}
+      progress={progress}
+      scope={scope}
+    />
+  );
 }
 
+// eslint-disable-next-line complexity, max-lines-per-function -- PDF controls coordinate native readiness, progress, navigation, and chapter-note state.
 function PdfReader({
   book,
+  destination,
   progress,
   scope,
 }: {
   book: BookRecord;
+  destination?: ReaderDestination;
   progress: ReadingProgress | undefined;
   scope: BookScope;
 }) {
   const sourceUri = getSourceFile(book, scope).uri;
   const [isReady, setIsReady] = useState(false);
   const [error, setError] = useState<string>();
-  const [pageNumber, setPageNumber] = useState(progress?.pdfPage ?? 1);
-  const [initialPage] = useState(progress?.pdfPage ?? 1);
+  const [pageNumber, setPageNumber] = useState(
+    destination?.page ?? progress?.pdfPage ?? 1,
+  );
+  const [initialPage] = useState(destination?.page ?? progress?.pdfPage ?? 1);
   const [controlsExpanded, setControlsExpanded] = useState(false);
+  const [annotationsVisible, setAnnotationsVisible] = useState(false);
+  const [chapterNoteDraft, setChapterNoteDraft] = useState<string>();
+  const [selectedAnnotation, setSelectedAnnotation] =
+    useState<ReaderAnnotation>();
+  const noteSection = pdfSectionAtPage(book, pageNumber);
+  const annotationQuery = useMemo(
+    () => readerAnnotationsQuery(book.id),
+    [book.id],
+  );
+  const annotations = useLiveQuery(annotationQuery).data;
+  const chapterAnnotations = annotations.filter(
+    (annotation) => annotation.sectionId === noteSection?.id,
+  );
 
   // eslint-disable-next-line no-restricted-syntax -- PDFKit readiness is an external native reader lifecycle.
   useEffect(() => {
@@ -147,6 +218,53 @@ function PdfReader({
         onExpandedChange={setControlsExpanded}
         scope={scope}
         detail={`Page ${pageNumber} of ${book.pageCount ?? 1}`}
+        annotationCount={chapterAnnotations.length}
+        onShowAnnotations={
+          scope === "library" && noteSection
+            ? () => setAnnotationsVisible(true)
+            : undefined
+        }
+      />
+      <AnnotationBrowserModal
+        annotations={chapterAnnotations}
+        onAddNote={() => {
+          setAnnotationsVisible(false);
+          if (noteSection) setChapterNoteDraft(noteSection.title);
+        }}
+        onClose={() => setAnnotationsVisible(false)}
+        onSelect={(annotation) => {
+          setAnnotationsVisible(false);
+          setSelectedAnnotation(annotation);
+        }}
+        visible={annotationsVisible}
+      />
+      <AnnotationNoteModal
+        annotation={selectedAnnotation}
+        chapterDraft={chapterNoteDraft}
+        context={noteSection?.title}
+        onClose={() => {
+          setChapterNoteDraft(undefined);
+          setSelectedAnnotation(undefined);
+        }}
+        onDelete={(id) => {
+          deleteReaderAnnotation(id);
+          setSelectedAnnotation(undefined);
+        }}
+        onSave={(note) => {
+          if (noteSection) {
+            addChapterNote({
+              bookId: book.id,
+              id: Crypto.randomUUID(),
+              note,
+              sectionId: noteSection.id,
+            });
+          }
+          setChapterNoteDraft(undefined);
+        }}
+        onUpdate={(id, note) => {
+          updateReaderAnnotationNote(id, note);
+          setSelectedAnnotation(undefined);
+        }}
       />
     </View>
   );
@@ -189,13 +307,15 @@ function PdfDocument({
   );
 }
 
-// eslint-disable-next-line max-lines-per-function -- Reader state intentionally stays together to coordinate WebView restoration, caching, navigation, and durable progress.
+// eslint-disable-next-line complexity, max-lines-per-function -- Reader state intentionally stays together to coordinate WebView restoration, caching, navigation, and durable progress.
 function EpubReader({
   book,
+  destination,
   progress: savedProgress,
   scope,
 }: {
   book: BookRecord;
+  destination?: ReaderDestination;
   progress: ReadingProgress | undefined;
   scope: BookScope;
 }) {
@@ -207,7 +327,13 @@ function EpubReader({
     () => book.sections.filter((section) => section.included),
     [book.sections],
   );
-  const initialPosition = resolveEpubPosition(sections, savedProgress);
+  const destinationSectionIndex = sections.findIndex(
+    (item) => item.id === destination?.sectionId,
+  );
+  const initialPosition =
+    destinationSectionIndex >= 0
+      ? { scrollProgress: 0, sectionIndex: destinationSectionIndex }
+      : resolveEpubPosition(sections, savedProgress);
   const [sectionIndex, setSectionIndex] = useState(
     initialPosition.sectionIndex,
   );
@@ -227,6 +353,7 @@ function EpubReader({
   const [chaptersVisible, setChaptersVisible] = useState(false);
   const [annotationsVisible, setAnnotationsVisible] = useState(false);
   const [noteDraft, setNoteDraft] = useState<ReaderSelectionMessage>();
+  const [chapterNoteDraft, setChapterNoteDraft] = useState<string>();
   const [selectedAnnotation, setSelectedAnnotation] =
     useState<ReaderAnnotation>();
   const [selectionHasHighlight, setSelectionHasHighlight] = useState(false);
@@ -237,7 +364,18 @@ function EpubReader({
   const webViews = useRef(new Map<string, WebView>());
   const loadedDocuments = useRef(new Set<string>());
   const pendingNavigation = useRef<{ index: number; key: string } | null>(null);
-  const pendingAnnotationId = useRef<string | undefined>(undefined);
+  const pendingAnnotationId = useRef(destination?.annotationId);
+  const pendingSearchTarget = useRef(
+    destination?.location !== undefined &&
+      destination.query &&
+      destination.occurrence !== undefined
+      ? {
+          locationIndex: destination.location - 1,
+          occurrence: destination.occurrence,
+          query: destination.query,
+        }
+      : undefined,
+  );
   const isRestoring = useRef(true);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
@@ -254,6 +392,9 @@ function EpubReader({
     [book.id],
   );
   const annotations = useLiveQuery(annotationQuery).data;
+  const chapterAnnotations = annotations.filter(
+    (annotation) => annotation.sectionId === section?.id,
+  );
 
   // eslint-disable-next-line no-restricted-syntax -- Let the native route transition begin before mounting the comparatively expensive WebView tree.
   useEffect(() => {
@@ -468,6 +609,15 @@ function EpubReader({
                         ),
                       );
                     }
+                    const searchTarget = pendingSearchTarget.current;
+                    if (searchTarget) {
+                      pendingSearchTarget.current = undefined;
+                      webViews.current
+                        .get(key)
+                        ?.injectJavaScript(
+                          scrollToReaderSearchResultScript(searchTarget),
+                        );
+                    }
                     return;
                   }
                   const event = parseReaderAnnotationEvent(nativeEvent.data);
@@ -598,8 +748,10 @@ function EpubReader({
         }
         onExpandedChange={setControlsExpanded}
         onShowChapters={() => setChaptersVisible(true)}
-        annotationCount={annotations.length}
-        onShowAnnotations={() => setAnnotationsVisible(true)}
+        annotationCount={chapterAnnotations.length}
+        onShowAnnotations={
+          scope === "library" ? () => setAnnotationsVisible(true) : undefined
+        }
         scope={scope}
       />
       <ChapterBrowserModal
@@ -614,25 +766,30 @@ function EpubReader({
         visible={chaptersVisible}
       />
       <AnnotationBrowserModal
-        annotations={annotations}
+        annotations={chapterAnnotations}
+        onAddNote={() => {
+          setAnnotationsVisible(false);
+          setChapterNoteDraft(section.title);
+        }}
         onClose={() => setAnnotationsVisible(false)}
         onSelect={(annotation) => {
           setAnnotationsVisible(false);
           setControlsExpanded(false);
+          if (annotation.kind === "chapter-note") {
+            setSelectedAnnotation(annotation);
+            return;
+          }
           pendingAnnotationId.current = annotation.id;
           const index = sections.findIndex(
             (item) => item.id === annotation.sectionId,
           );
           if (index === sectionIndex) {
             pendingAnnotationId.current = undefined;
-            webViews.current.get(documentKey)?.injectJavaScript(
-              applyReaderAnnotationsScript(
-                annotations.filter(
-                  (item) => item.sectionId === annotation.sectionId,
-                ),
-                annotation.id,
-              ),
-            );
+            webViews.current
+              .get(documentKey)
+              ?.injectJavaScript(
+                applyReaderAnnotationsScript(chapterAnnotations, annotation.id),
+              );
           } else {
             prepareSectionChange(index);
           }
@@ -641,9 +798,12 @@ function EpubReader({
       />
       <AnnotationNoteModal
         annotation={selectedAnnotation}
+        chapterDraft={chapterNoteDraft}
+        context={section.title}
         draft={noteDraft}
         onClose={() => {
           setNoteDraft(undefined);
+          setChapterNoteDraft(undefined);
           setSelectedAnnotation(undefined);
         }}
         onDelete={(id) => {
@@ -652,7 +812,16 @@ function EpubReader({
         }}
         onSave={(note) => {
           if (noteDraft) saveAnnotation(noteDraft, "note", note);
+          if (chapterNoteDraft) {
+            addChapterNote({
+              bookId: book.id,
+              id: Crypto.randomUUID(),
+              note,
+              sectionId: section.id,
+            });
+          }
           setNoteDraft(undefined);
+          setChapterNoteDraft(undefined);
         }}
         onUpdate={(id, note) => {
           updateReaderAnnotationNote(id, note);
@@ -720,35 +889,27 @@ function EpubReader({
 }
 
 function ReaderControls({
+  annotationCount,
   book,
   detail,
   expanded,
   header,
   onExpandedChange,
-  annotationCount,
   onShowAnnotations,
   onShowChapters,
   scope,
 }: {
   book: BookRecord;
+  annotationCount?: number;
   detail?: string;
   expanded: boolean;
   header?: React.ReactNode;
   onExpandedChange: (expanded: boolean) => void;
-  annotationCount?: number;
   onShowAnnotations?: () => void;
   onShowChapters?: () => void;
   scope: BookScope;
 }) {
   const router = useRouter();
-
-  // eslint-disable-next-line no-restricted-syntax -- The editor route is prepared after the reader shell mounts so opening it remains immediate.
-  useEffect(() => {
-    router.prefetch({
-      pathname: "/book/[id]/edit",
-      params: { id: book.id, scope },
-    });
-  }, [book.id, router, scope]);
 
   return (
     <ChapterControlsPanel
@@ -756,26 +917,18 @@ function ReaderControls({
       header={header}
       onExpandedChange={onExpandedChange}
     >
-      <ReaderBookDetails book={book} detail={detail} />
+      <ReaderDetail text={detail} />
       <ReaderSecondaryActions
         annotationCount={annotationCount}
         onShowAnnotations={onShowAnnotations}
         onShowChapters={onShowChapters}
-      />
-      <Pressable
-        accessibilityRole="button"
-        className="bg-primary h-11 items-center justify-center rounded-full active:opacity-75"
-        onPress={() =>
+        onShowOverview={() =>
           router.push({
-            pathname: "/book/[id]/edit",
+            pathname: "/book/[id]/overview",
             params: { id: book.id, scope },
           })
         }
-      >
-        <Text className="text-primary-foreground text-sm font-semibold">
-          Edit book
-        </Text>
-      </Pressable>
+      />
     </ChapterControlsPanel>
   );
 }
@@ -834,33 +987,21 @@ function addKey(keys: Set<string>, key: string) {
   return new Set([...keys, key]);
 }
 
-function ReaderBookDetails({
-  book,
-  detail,
-}: {
-  book: BookRecord;
-  detail?: string;
-}) {
-  return (
-    <View>
-      <Text
-        className="text-foreground text-[15px] font-semibold"
-        numberOfLines={1}
-      >
-        {book.title}
-      </Text>
-      <ReaderDetail text={book.author} />
-      <ReaderDetail text={detail} />
-    </View>
-  );
-}
-
 function ReaderDetail({ text }: { text: string | undefined }) {
   if (!text) return null;
   return (
     <Text className="text-muted-foreground mt-1 text-sm" numberOfLines={1}>
       {text}
     </Text>
+  );
+}
+
+function pdfSectionAtPage(book: BookRecord, page: number) {
+  return book.sections.find(
+    (section) =>
+      section.included &&
+      page >= (section.startPage ?? 1) &&
+      page <= (section.endPage ?? book.pageCount ?? 1),
   );
 }
 

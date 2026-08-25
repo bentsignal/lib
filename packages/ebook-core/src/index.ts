@@ -12,6 +12,7 @@ export type { EpubReaderSession } from "./epub-reader";
 export { extractEpubCover, extractEpubCoverFromArchive } from "./epub-cover";
 export type { ExtractedEpubCover } from "./epub-cover";
 export { sectionLocationRange } from "./epub-content";
+export { extractEpubLocationTexts } from "./epub-search";
 export {
   cleanEpubLocations,
   remapEpubSections,

@@ -19,6 +19,7 @@ export type {
   ReaderAnnotation,
 } from "./reader-annotations";
 export {
+  addChapterNote,
   addReaderAnnotation,
   deleteReaderAnnotation,
   deleteReaderHighlightsInRange,
@@ -166,6 +167,16 @@ export function getReadingProgress(bookId: string) {
     .from(readingProgress)
     .where(eq(readingProgress.bookId, bookId))
     .get();
+}
+
+export function getReadingActivity() {
+  return db
+    .select({
+      bookId: readingProgress.bookId,
+      updatedAt: readingProgress.updatedAt,
+    })
+    .from(readingProgress)
+    .all();
 }
 
 export function libraryQueries() {

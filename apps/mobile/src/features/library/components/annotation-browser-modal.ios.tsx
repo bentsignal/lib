@@ -1,21 +1,9 @@
-import type { TextFieldRef } from "@expo/ui/swift-ui";
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { Modal, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import {
-  Button,
-  Host,
-  HStack,
-  Image,
-  List,
-  Spacer,
-  Text,
-  TextField,
-  VStack,
-} from "@expo/ui/swift-ui";
+import { Host, Image, List, Spacer, Text, VStack } from "@expo/ui/swift-ui";
 import {
   background as backgroundModifier,
-  buttonStyle,
   font,
   foregroundStyle,
   frame,
@@ -23,24 +11,24 @@ import {
   multilineTextAlignment,
   padding,
   scrollContentBackground,
-  shapes,
-  textFieldStyle,
-  tint,
 } from "@expo/ui/swift-ui/modifiers";
 
 import type { ReaderAnnotation } from "~/db/catalog";
 import { useAppColorScheme } from "~/features/theme/app-appearance";
 import { useColor } from "~/hooks/use-color";
 import { NativeAnnotationRow } from "./annotation-row.ios";
+import { NativeSearchField } from "./native-search-field";
 import { NativeSheetHeader } from "./native-sheet-header.ios";
 
 export function AnnotationBrowserModal({
   annotations,
+  onAddNote,
   onClose,
   onSelect,
   visible,
 }: {
   annotations: ReaderAnnotation[];
+  onAddNote?: () => void;
   onClose: () => void;
   onSelect: (annotation: ReaderAnnotation) => void;
   visible: boolean;
@@ -48,13 +36,13 @@ export function AnnotationBrowserModal({
   const [query, setQuery] = useState("");
   const background = useColor("background");
   const foreground = useColor("foreground");
-  const muted = useColor("muted");
   const mutedForeground = useColor("muted-foreground");
   const primary = useColor("primary");
   const colorScheme = useAppColorScheme();
   const results = filterAnnotations(annotations, query);
   return (
     <Modal
+      allowSwipeDismissal
       animationType="slide"
       onRequestClose={onClose}
       presentationStyle="pageSheet"
@@ -64,15 +52,25 @@ export function AnnotationBrowserModal({
         edges={["top", "bottom"]}
         style={{ backgroundColor: background, flex: 1 }}
       >
-        <NativeSheetHeader onClose={onClose} title="Notes & highlights" />
-        <NativeAnnotationSearch
-          background={muted}
-          colorScheme={colorScheme}
-          foreground={foreground}
-          mutedForeground={mutedForeground}
+        <NativeSheetHeader
+          onClose={onClose}
+          title="Notes & highlights"
+          trailingAction={
+            onAddNote
+              ? {
+                  label: "New",
+                  onPress: onAddNote,
+                  systemImage: "square.and.pencil",
+                }
+              : undefined
+          }
+        />
+        <NativeSearchField
+          containerStyle={{ marginHorizontal: 16, marginVertical: 12 }}
+          label="Search notes and highlights"
           onChange={setQuery}
-          primary={primary}
-          query={query}
+          placeholder="Search saved passages"
+          value={query}
         />
         <View style={{ flex: 1 }}>
           <AnnotationResults
@@ -88,94 +86,6 @@ export function AnnotationBrowserModal({
         </View>
       </SafeAreaView>
     </Modal>
-  );
-}
-
-function NativeAnnotationSearch({
-  background,
-  colorScheme,
-  foreground,
-  mutedForeground,
-  onChange,
-  primary,
-  query,
-}: {
-  background: string;
-  colorScheme: "dark" | "light";
-  foreground: string;
-  mutedForeground: string;
-  onChange: (query: string) => void;
-  primary: string;
-  query: string;
-}) {
-  const searchRef = useRef<TextFieldRef>(null);
-  return (
-    <Host
-      colorScheme={colorScheme}
-      seedColor={primary}
-      style={{ height: 40, marginHorizontal: 16, marginVertical: 12 }}
-    >
-      <HStack
-        alignment="center"
-        modifiers={[
-          frame({ height: 40 }),
-          padding({ horizontal: 12 }),
-          backgroundModifier(
-            background,
-            shapes.roundedRectangle({
-              cornerRadius: 13,
-              roundedCornerStyle: "continuous",
-            }),
-          ),
-        ]}
-        spacing={8}
-      >
-        <Image color={mutedForeground} size={15} systemName="magnifyingglass" />
-        <TextField
-          ref={searchRef}
-          modifiers={[
-            textFieldStyle("plain"),
-            font({ textStyle: "body" }),
-            foregroundStyle(foreground),
-          ]}
-          onTextChange={onChange}
-        >
-          <TextField.Placeholder>
-            <Text modifiers={[foregroundStyle(mutedForeground)]}>
-              Search saved passages
-            </Text>
-          </TextField.Placeholder>
-        </TextField>
-        <Spacer minLength={0} />
-        <ClearSearchButton
-          mutedForeground={mutedForeground}
-          onClear={() => {
-            void searchRef.current?.clear();
-            onChange("");
-          }}
-          query={query}
-        />
-      </HStack>
-    </Host>
-  );
-}
-
-function ClearSearchButton({
-  mutedForeground,
-  onClear,
-  query,
-}: {
-  mutedForeground: string;
-  onClear: () => void;
-  query: string;
-}) {
-  if (!query) return null;
-  return (
-    <Button
-      modifiers={[buttonStyle("plain"), tint(mutedForeground)]}
-      onPress={onClear}
-      systemImage="xmark.circle.fill"
-    />
   );
 }
 

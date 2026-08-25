@@ -52,6 +52,7 @@ export function ChapterBrowserModal({
   if (!visible) return null;
   return (
     <Modal
+      allowSwipeDismissal
       animationType="slide"
       onRequestClose={onClose}
       presentationStyle="pageSheet"

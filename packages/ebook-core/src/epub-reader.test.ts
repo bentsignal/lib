@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import type { BookSection, EpubLocation } from "./model";
 import { createEpubReaderSession } from "./epub-reader";
+import { extractEpubLocationTexts } from "./epub-search";
 
 describe("createEpubReaderSession", () => {
   it("reuses an opened archive to render multiple sections", async () => {
@@ -35,7 +36,30 @@ describe("createEpubReaderSession", () => {
     expect(first).not.toContain("Metadata title");
     expect(first).not.toContain("lib-chapter-title");
     expect(first).toContain('id="lib-reader-content"');
+    expect(first).toContain('data-lib-location="0"');
     expect(second).toContain("Second chapter");
+  });
+
+  it("extracts complete searchable text instead of stored excerpts", async () => {
+    const archive = new JSZip();
+    archive.file(
+      "one.xhtml",
+      `<html><body><p>${"Beginning ".repeat(30)}hidden ending</p></body></html>`,
+    );
+    const source = await archive.generateAsync({ type: "uint8array" });
+    const texts = await extractEpubLocationTexts(source, [
+      {
+        endOffset: 353,
+        excerpt: "Beginning",
+        href: "one.xhtml",
+        index: 0,
+        startOffset: 0,
+        title: "One",
+      },
+    ]);
+
+    expect(texts[0]).toContain("hidden ending");
+    expect(texts[0]?.length).toBeGreaterThan(180);
   });
 });
 

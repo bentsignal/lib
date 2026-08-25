@@ -73,6 +73,7 @@ export default function RootLayout() {
                     name="book/[id]/edit"
                     options={{ title: "" }}
                   />
+                  <Stack.Screen name="book/[id]/overview" />
                   <Stack.Screen name="book/[id]/read" />
                   <Stack.Screen name="book/[id]/section/[sectionId]" />
                 </Stack>

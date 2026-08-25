@@ -16,6 +16,7 @@ import {
 } from "@lib/ebook-core";
 
 import type { PendingBookImport } from "./import-book-files";
+import type { CoverSource } from "./pick-book-cover";
 import type { BookScope } from "~/db/catalog";
 import {
   hydrateBooks,
@@ -26,6 +27,10 @@ import {
   updateStoredBook,
 } from "~/db/catalog";
 import { extractPdfTextAsync } from "~/native/lib-pdf";
+import {
+  removeBookSearchIndex,
+  scheduleBookSearchIndexes,
+} from "./book-search-documents";
 import { stagePickedBooks } from "./import-book-files";
 import {
   getLibraryActivity,
@@ -42,6 +47,9 @@ import {
   getCoverFile,
   getSourceFile,
 } from "./library-storage";
+import { pickBookCover } from "./pick-book-cover";
+
+/* eslint-disable max-lines */
 
 const libraryQuerySet = libraryQueries();
 const importQuerySet = importQueries();
@@ -101,8 +109,17 @@ function useInternalLibraryStore() {
     },
     exportBook: (id: string) => exportBook(id, books),
     pickBookDrafts,
-    replaceBookCover: (id: string, scope: BookScope = "library") =>
-      replaceBookCover(id, scope, scope === "library" ? books : imports),
+    replaceBookCover: (
+      id: string,
+      scope: BookScope = "library",
+      source: CoverSource = "files",
+    ) =>
+      replaceBookCover(
+        id,
+        scope,
+        source,
+        scope === "library" ? books : imports,
+      ),
     updateBook: (id: string, update: Partial<BookRecord>) =>
       updateScopedBook(id, update, "library", books),
     updateImport: (id: string, update: Partial<BookRecord>) =>
@@ -215,23 +232,21 @@ async function addBooksToLibrary(imports: BookRecord[]) {
     Alert.alert("Couldn’t add those books", errorMessage(error));
   }
   setLibraryActivity({ isAddingToLibrary: false });
+  if (succeeded) scheduleBookSearchIndexes(promoted);
   return succeeded;
 }
 
 async function replaceBookCover(
   id: string,
   scope: BookScope,
+  coverSource: CoverSource,
   books: BookRecord[],
 ) {
   const book = books.find((item) => item.id === id);
   if (!book) return;
-  const picked = await File.pickFileAsync({
-    mimeTypes: ["image/jpeg", "image/png", "image/webp"],
-    multipleFiles: false,
-  });
-  if (picked.canceled) return;
   try {
-    const source = picked.result;
+    const source = await pickBookCover(coverSource);
+    if (!source) return;
     const extension = source.name.split(".").pop() ?? "jpg";
     const destination = coverDestination(book, extension, scope);
     if (destination.exists) destination.delete();
@@ -266,6 +281,7 @@ async function deleteScopedBook(
   try {
     await removeStoredBook(id, scope);
     deleteStoredBookFiles(book, scope);
+    void removeBookSearchIndex(id, scope).catch(() => undefined);
   } catch (error) {
     Alert.alert("Couldn’t remove that book", errorMessage(error));
   }

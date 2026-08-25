@@ -2,6 +2,7 @@ import type JSZip from "jszip";
 
 import type { BookSection, EpubLocation } from "./model";
 import { excerptFromMarkup, textFromMarkup } from "./epub-text";
+import { yieldEvery } from "./yield-to-event-loop";
 
 export interface EpubNavigationPoint {
   href: string;
@@ -28,9 +29,7 @@ export async function discoverEpubLocations(
     })),
   );
   for (const [documentIndex, { href, source }] of documents.entries()) {
-    if (documentIndex > 0 && documentIndex % 8 === 0) {
-      await yieldToEventLoop();
-    }
+    await yieldEvery(documentIndex, 8);
     if (!source) continue;
     const points = navigation.filter((point) => sameDocument(point.href, href));
     const segments = splitDocument(source, points);
@@ -51,10 +50,6 @@ export async function discoverEpubLocations(
   return locations;
 }
 
-function yieldToEventLoop() {
-  return new Promise<void>((resolve) => setTimeout(resolve, 0));
-}
-
 export async function renderEpubSection(
   archive: JSZip,
   section: BookSection,
@@ -62,7 +57,12 @@ export async function renderEpubSection(
 ) {
   const range = sectionLocationRange(section, locations);
   const selected = locations.slice(range.start, range.end + 1);
-  return (await renderEpubLocations(archive, selected)).join("\n");
+  return (await renderEpubLocations(archive, selected))
+    .map(
+      (markup, index) =>
+        `<section data-lib-location="${range.start + index}">${markup}</section>`,
+    )
+    .join("\n");
 }
 
 export async function renderEpubLocation(
@@ -77,10 +77,12 @@ export async function renderEpubLocation(
 export async function renderEpubLocations(
   archive: JSZip,
   locations: EpubLocation[],
+  includeImages = true,
 ) {
   const sourceByHref = new Map<string, string | undefined>();
   const rendered = new Array<string>();
-  for (const location of locations) {
+  for (const [locationIndex, location] of locations.entries()) {
+    await yieldEvery(locationIndex, 24);
     let source = sourceByHref.get(location.href);
     if (!sourceByHref.has(location.href)) {
       const rawSource = await archive.file(location.href)?.async("string");
@@ -98,7 +100,11 @@ export async function renderEpubLocations(
       rendered.push("");
       continue;
     }
-    rendered.push(await embedImages(archive, location.href, markup));
+    rendered.push(
+      includeImages
+        ? await embedImages(archive, location.href, markup)
+        : markup,
+    );
   }
   return rendered;
 }

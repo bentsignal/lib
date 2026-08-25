@@ -5,6 +5,7 @@ import {
   parseReaderAnnotationEvent,
   readerSelectionObserverScript,
   readerSelectionScript,
+  scrollToReaderSearchResultScript,
 } from "./reader-annotations";
 
 describe("reader annotations", () => {
@@ -78,5 +79,33 @@ describe("reader annotations", () => {
 
     expect(script).toContain('"id":"saved"');
     expect(script).toContain("data-lib-annotation");
+
+    const chapterNoteScript = applyReaderAnnotationsScript([
+      {
+        bookId: "book",
+        createdAt: "now",
+        endOffset: 0,
+        id: "chapter-note",
+        kind: "chapter-note",
+        note: "A thought",
+        sectionId: "chapter",
+        selectedText: "",
+        startOffset: 0,
+        updatedAt: "now",
+      },
+    ]);
+    expect(chapterNoteScript).not.toContain('"id":"chapter-note"');
+  });
+
+  it("builds a precise in-chapter search destination", () => {
+    const script = scrollToReaderSearchResultScript({
+      locationIndex: 4,
+      occurrence: 1,
+      query: "second mention",
+    });
+
+    expect(script).toContain('data-lib-location="4"');
+    expect(script).toContain("second mention");
+    expect(script).toContain("getBoundingClientRect");
   });
 });

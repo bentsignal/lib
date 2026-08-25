@@ -80,12 +80,14 @@ export function applyReaderAnnotationsScript(
   annotations: ReaderAnnotation[],
   scrollToId?: string,
 ) {
-  const values = annotations.map((annotation) => ({
-    endOffset: annotation.endOffset,
-    id: annotation.id,
-    kind: annotation.kind,
-    startOffset: annotation.startOffset,
-  }));
+  const values = annotations
+    .filter((annotation) => annotation.kind !== "chapter-note")
+    .map((annotation) => ({
+      endOffset: annotation.endOffset,
+      id: annotation.id,
+      kind: annotation.kind,
+      startOffset: annotation.startOffset,
+    }));
   return `(function () {
     var root = document.getElementById('lib-reader-content');
     if (!root) return;
@@ -146,6 +148,78 @@ export function applyReaderAnnotationsScript(
     if (requested) {
       var target = root.querySelector('mark[data-lib-annotation="' + requested + '"]');
       if (target) target.scrollIntoView({ block: 'center', behavior: 'instant' });
+    }
+  })(); true;`;
+}
+
+export function scrollToReaderSearchResultScript({
+  locationIndex,
+  occurrence,
+  query,
+}: {
+  locationIndex: number;
+  occurrence: number;
+  query: string;
+}) {
+  const normalizedQuery = query
+    .trim()
+    .replaceAll(/[\s\u0085]+/gu, " ")
+    .toLocaleLowerCase();
+  return `(function () {
+    var location = document.querySelector('[data-lib-location="${locationIndex}"]');
+    var needle = ${JSON.stringify(normalizedQuery)};
+    if (!location || !needle) return;
+    var walker = document.createTreeWalker(location, NodeFilter.SHOW_TEXT);
+    var nodes = [];
+    var text = '';
+    var node;
+    while ((node = walker.nextNode())) {
+      var value = node.nodeValue || '';
+      nodes.push({ end: text.length + value.length, node: node, start: text.length });
+      text += value;
+    }
+    var haystack = '';
+    var positions = [];
+    var source = text.toLocaleLowerCase();
+    for (var sourceIndex = 0; sourceIndex < source.length; sourceIndex += 1) {
+      var character = source[sourceIndex];
+      if (/\\s|\\u0085/u.test(character)) {
+        if (haystack && haystack[haystack.length - 1] !== ' ') {
+          haystack += ' ';
+          positions.push(sourceIndex);
+        }
+      } else {
+        haystack += character;
+        positions.push(sourceIndex);
+      }
+    }
+    var offset = 0;
+    var match = -1;
+    for (var index = 0; index <= ${occurrence}; index += 1) {
+      match = haystack.indexOf(needle, offset);
+      if (match < 0) return;
+      offset = match + Math.max(needle.length, 1);
+    }
+    var sourceStart = positions[match];
+    var sourceEnd = (positions[match + needle.length - 1] || sourceStart) + 1;
+    var startNode = nodes.find(function (entry) { return sourceStart >= entry.start && sourceStart < entry.end; });
+    var endNode = nodes.find(function (entry) { return sourceEnd > entry.start && sourceEnd <= entry.end; });
+    if (!startNode || !endNode) {
+      location.scrollIntoView({ block: 'center', behavior: 'instant' });
+      return;
+    }
+    var range = document.createRange();
+    range.setStart(startNode.node, sourceStart - startNode.start);
+    range.setEnd(endNode.node, sourceEnd - endNode.start);
+    var bounds = range.getBoundingClientRect();
+    window.scrollTo({
+      behavior: 'instant',
+      top: window.scrollY + bounds.top - (window.innerHeight - bounds.height) / 2
+    });
+    var selection = window.getSelection();
+    if (selection) {
+      selection.removeAllRanges();
+      selection.addRange(range);
     }
   })(); true;`;
 }
