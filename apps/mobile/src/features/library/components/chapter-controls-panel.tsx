@@ -1,11 +1,16 @@
 import type { ViewStyle } from "react-native";
+import type { SharedValue } from "react-native-reanimated";
+import { useState } from "react";
 import { PanResponder, Platform, Pressable, Text, View } from "react-native";
 import {
   KeyboardController,
   KeyboardStickyView,
   useKeyboardState,
 } from "react-native-keyboard-controller";
-import Animated, { LinearTransition } from "react-native-reanimated";
+import Animated, {
+  LinearTransition,
+  useAnimatedStyle,
+} from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { GlassView, isLiquidGlassAvailable } from "expo-glass-effect";
 
@@ -17,17 +22,29 @@ export function ChapterControlsPanel({
   expanded,
   header,
   onExpandedChange,
+  visibility,
 }: {
   children: React.ReactNode;
   expanded: boolean;
   header?: React.ReactNode;
   onExpandedChange: (expanded: boolean) => void;
+  visibility?: SharedValue<number>;
 }) {
   const insets = useSafeAreaInsets();
   const keyboardVisible = useKeyboardState((state) => state.isVisible);
   const card = useColor("card");
   const border = useColor("border");
   const colorScheme = useAppColorScheme();
+  const [panelHeight, setPanelHeight] = useState(0);
+  const visibilityStyle = useAnimatedStyle(() => ({
+    transform: [
+      {
+        translateY:
+          (1 - (visibility?.value ?? 1)) * (panelHeight + hiddenPanelClearance),
+      },
+    ],
+  }));
+
   function changeExpanded(nextExpanded: boolean) {
     onExpandedChange(nextExpanded);
   }
@@ -49,35 +66,40 @@ export function ChapterControlsPanel({
       pointerEvents="box-none"
       style={{ bottom: 0, left: 0, position: "absolute", right: 0 }}
     >
-      <Animated.View
-        layout={panelTransition}
-        pointerEvents="box-none"
-        style={{
-          paddingBottom: keyboardVisible ? 8 : Math.max(insets.bottom, 12),
-          paddingHorizontal: 12,
-        }}
-      >
+      <Animated.View pointerEvents="box-none" style={visibilityStyle}>
         <Animated.View
-          {...panelSwipe.panHandlers}
           layout={panelTransition}
-          style={shadowStyle(colorScheme, surfaceStyle)}
+          onLayout={({ nativeEvent }) =>
+            setPanelHeight(nativeEvent.layout.height)
+          }
+          pointerEvents="box-none"
+          style={{
+            paddingBottom: keyboardVisible ? 8 : Math.max(insets.bottom, 12),
+            paddingHorizontal: 12,
+          }}
         >
-          <PanelSurface
-            backgroundColor={card}
-            colorScheme={colorScheme}
-            style={surfaceStyle}
+          <Animated.View
+            {...panelSwipe.panHandlers}
+            layout={panelTransition}
+            style={shadowStyle(colorScheme, surfaceStyle)}
           >
-            <View>
-              <PanelHeader
-                expanded={expanded}
-                header={header}
-                onPress={() => changeExpanded(!expanded)}
-              />
-              <ExpandedControls expanded={expanded}>
-                {children}
-              </ExpandedControls>
-            </View>
-          </PanelSurface>
+            <PanelSurface
+              backgroundColor={card}
+              colorScheme={colorScheme}
+              style={surfaceStyle}
+            >
+              <View>
+                <PanelHeader
+                  expanded={expanded}
+                  header={header}
+                  onPress={() => changeExpanded(!expanded)}
+                />
+                <ExpandedControls expanded={expanded}>
+                  {children}
+                </ExpandedControls>
+              </View>
+            </PanelSurface>
+          </Animated.View>
         </Animated.View>
       </Animated.View>
     </KeyboardStickyView>
@@ -188,4 +210,5 @@ function shadowStyle(colorScheme: "dark" | "light", surface: ViewStyle) {
 }
 
 const swipeDistance = 28;
+const hiddenPanelClearance = 16;
 const panelTransition = LinearTransition.springify().damping(24).stiffness(240);

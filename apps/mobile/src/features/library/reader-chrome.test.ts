@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import {
   parseReaderChromeEvent,
   readerChromePressScript,
-  readerChromeScrollScript,
 } from "./reader-chrome";
 
 describe("reader chrome", () => {
@@ -19,19 +18,14 @@ describe("reader chrome", () => {
     const script = readerChromePressScript();
 
     expect(script).toContain("touchstart");
-    expect(script).toContain("selectionAtPressStart");
+    expect(script).toContain("touchend");
+    expect(script).toContain("capture: true");
+    expect(script).toContain("maximumTapMovement");
+    expect(script).toContain("__libReaderChromeLastTouchEnd");
+    expect(script).toContain("press.selection");
     expect(script).toContain("!selection.isCollapsed");
     expect(script).toContain("mark[data-lib-annotation]");
     expect(script).toContain("reader-press");
-  });
-
-  it("builds bounded scroll restoration scripts", () => {
-    expect(readerChromeScrollScript(144.5)).toContain(
-      "window.scrollTo(0, 144.5)",
-    );
-    expect(readerChromeScrollScript(-20)).toContain("window.scrollTo(0, 0)");
-    expect(readerChromeScrollScript(Number.NaN)).toContain(
-      "window.scrollTo(0, 0)",
-    );
+    expect(script).not.toContain("addEventListener('click'");
   });
 });

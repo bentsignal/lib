@@ -19,11 +19,12 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     },
   },
   ios: {
-    buildNumber: "48",
+    buildNumber: "53",
     bundleIdentifier: "com.bentsignal.lib",
     supportsTablet: true,
     icon: "./assets/icons/lib.icon",
     infoPlist: {
+      CADisableMinimumFrameDurationOnPhone: true,
       ITSAppUsesNonExemptEncryption: false,
       LSApplicationQueriesSchemes: ["com.openai.chat"],
       LSSupportsOpeningDocumentsInPlace: true,
@@ -31,7 +32,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     },
   },
   android: {
-    versionCode: 48,
+    versionCode: 53,
     package: "com.bentsignal.lib",
     icon: "./assets/icon.png",
     adaptiveIcon: {

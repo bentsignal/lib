@@ -49,14 +49,13 @@ export function ChapterBrowserModal({
   const mutedForeground = useColor("muted-foreground");
   const primary = useColor("primary");
   const colorScheme = useAppColorScheme();
-  if (!visible) return null;
   return (
     <Modal
       allowSwipeDismissal
       animationType="slide"
       onRequestClose={onClose}
       presentationStyle="pageSheet"
-      visible
+      visible={visible}
     >
       <SafeAreaView
         edges={["top"]}

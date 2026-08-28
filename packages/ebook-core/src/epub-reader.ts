@@ -132,7 +132,7 @@ body {
   line-height: 1.65;
   margin: 0 auto;
   max-width: 44rem;
-  padding: 2rem 1.35rem 7rem;
+  padding: 7rem 1.35rem 7rem;
   overflow-wrap: anywhere;
 }
 article + article { border-top: 1px solid ${theme.muted}; margin-top: 4rem; padding-top: 3rem; }

@@ -1,3 +1,5 @@
+import type { ViewStyle } from "react-native";
+import type { SharedValue } from "react-native-reanimated";
 // eslint-disable-next-line no-restricted-imports -- Included chapters must remain referentially stable while progress rows update reactively.
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -5,13 +7,22 @@ import {
   Animated,
   Easing,
   Linking,
+  PixelRatio,
   Platform,
   Pressable,
   Text,
   View,
 } from "react-native";
+import Reanimated, {
+  Easing as ReanimatedEasing,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { WebView } from "react-native-webview";
 import * as Crypto from "expo-crypto";
+import { GlassView, isLiquidGlassAvailable } from "expo-glass-effect";
 import { Stack, useRouter } from "expo-router";
 import { SymbolView } from "expo-symbols";
 import { useLiveQuery } from "drizzle-orm/expo-sqlite";
@@ -35,6 +46,7 @@ import {
   saveReadingProgress,
   updateReaderAnnotationNote,
 } from "~/db/catalog";
+import { useAppColorScheme } from "~/features/theme/app-appearance";
 import { useColor } from "~/hooks/use-color";
 import { getPdfPageCountAsync, LibPdfView } from "~/native/lib-pdf";
 import { recordBookOpened } from "../book-recency";
@@ -42,6 +54,7 @@ import { AnnotationBrowserModal } from "../components/annotation-browser-modal";
 import { AnnotationNoteModal } from "../components/annotation-note-modal";
 import { ChapterBrowserModal } from "../components/chapter-browser-modal";
 import { ChapterControlsPanel } from "../components/chapter-controls-panel";
+import { NativeHeaderBar } from "../components/native-header-bar";
 import { ReaderSecondaryActions } from "../components/reader-secondary-actions";
 import { chapterWindowIndices } from "../epub-navigation";
 import {
@@ -63,7 +76,6 @@ import { chatGptAppUrl, chatGptDraftUrl } from "../reader-chatgpt";
 import {
   parseReaderChromeEvent,
   readerChromePressScript,
-  readerChromeScrollScript,
 } from "../reader-chrome";
 import {
   EPUB_RESTORE_COMPLETE_MESSAGE,
@@ -98,7 +110,6 @@ export function ReaderScreen({
   );
   const isReady = useLibrary((store) => store.isReady);
   const primary = useColor("primary");
-  const [chromeVisible, setChromeVisible] = useState(true);
   if (!isReady) return <ReaderLoading color={primary} />;
   if (!book) {
     return (
@@ -112,16 +123,14 @@ export function ReaderScreen({
       <Stack.Screen
         options={{
           headerLargeTitle: false,
-          headerShown: chromeVisible,
+          headerShown: book.format === "pdf",
           title: book.title,
         }}
       />
       <BookReader
         book={book}
-        chromeVisible={chromeVisible}
         destination={destination}
         key={`${scope}:${book.id}`}
-        onToggleChrome={() => setChromeVisible((visible) => !visible)}
         scope={scope}
       />
     </View>
@@ -130,15 +139,11 @@ export function ReaderScreen({
 
 function BookReader({
   book,
-  chromeVisible,
   destination,
-  onToggleChrome,
   scope,
 }: {
   book: BookRecord;
-  chromeVisible: boolean;
   destination?: ReaderDestination;
-  onToggleChrome: () => void;
   scope: BookScope;
 }) {
   const [progress] = useState(() =>
@@ -163,9 +168,7 @@ function BookReader({
   return (
     <EpubReader
       book={book}
-      chromeVisible={chromeVisible}
       destination={destination}
-      onToggleChrome={onToggleChrome}
       progress={progress}
       scope={scope}
     />
@@ -330,16 +333,12 @@ function PdfDocument({
 // eslint-disable-next-line complexity, max-lines-per-function -- Reader state intentionally stays together to coordinate WebView restoration, caching, navigation, and durable progress.
 function EpubReader({
   book,
-  chromeVisible,
   destination,
-  onToggleChrome,
   progress: savedProgress,
   scope,
 }: {
   book: BookRecord;
-  chromeVisible: boolean;
   destination?: ReaderDestination;
-  onToggleChrome: () => void;
   progress: ReadingProgress | undefined;
   scope: BookScope;
 }) {
@@ -383,9 +382,10 @@ function EpubReader({
   const [selectionHasHighlight, setSelectionHasHighlight] = useState(false);
   const [chatGptAvailable, setChatGptAvailable] = useState(false);
   const [pendingSectionIndex, setPendingSectionIndex] = useState<number>();
+  const chromeVisibility = useSharedValue(1);
   const section = sections[sectionIndex];
   const sectionProgress = useRef(new Map<string, number>());
-  const readerViewport = useRef<View>(null);
+  const chromeVisible = useRef(true);
   const webViews = useRef(new Map<string, WebView>());
   const loadedDocuments = useRef(new Set<string>());
   const pendingNavigation = useRef<{ index: number; key: string } | null>(null);
@@ -401,12 +401,6 @@ function EpubReader({
         }
       : undefined,
   );
-  const pendingChromeAnchor = useRef<{
-    documentKey: string;
-    scrollOffset: number;
-    viewportY: number;
-  } | null>(null);
-  const latestScrollOffset = useRef(0);
   const isRestoring = useRef(true);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
@@ -554,11 +548,7 @@ function EpubReader({
   }
   return (
     <View className="flex-1">
-      <View
-        className="flex-1"
-        onLayout={restoreChromeScrollAnchor}
-        ref={readerViewport}
-      >
+      <View className="flex-1">
         {/* eslint-disable-next-line complexity, max-lines-per-function -- Each prepared WebView owns its native lifecycle callbacks. */}
         {mountedIndices.map((index) => {
           const renderedSection = sections[index];
@@ -593,7 +583,12 @@ function EpubReader({
                 bounces
                 containerStyle={{ backgroundColor: background }}
                 decelerationRate="normal"
+                injectedJavaScriptBeforeContentLoaded={readerChromePressScript()}
                 javaScriptEnabled
+                onContentProcessDidTerminate={() => {
+                  loadedDocuments.current.delete(key);
+                  webViews.current.get(key)?.reload();
+                }}
                 onLoadEnd={() => {
                   loadedDocuments.current.add(key);
                   webViews.current
@@ -659,7 +654,6 @@ function EpubReader({
                     return;
                   }
                   if (active && parseReaderChromeEvent(nativeEvent.data)) {
-                    setControlsExpanded(false);
                     toggleChrome();
                     return;
                   }
@@ -737,7 +731,6 @@ function EpubReader({
                 }}
                 onScroll={({ nativeEvent }) => {
                   if (!active) return;
-                  latestScrollOffset.current = nativeEvent.contentOffset.y;
                   const maximum =
                     nativeEvent.contentSize.height -
                     nativeEvent.layoutMeasurement.height;
@@ -777,6 +770,7 @@ function EpubReader({
           );
         })}
       </View>
+      <EpubReaderHeader title={book.title} visibility={chromeVisibility} />
       <ReaderControls
         book={book}
         expanded={controlsExpanded}
@@ -797,7 +791,7 @@ function EpubReader({
           scope === "library" ? () => setAnnotationsVisible(true) : undefined
         }
         scope={scope}
-        visible={chromeVisible}
+        visibility={chromeVisibility}
       />
       <ChapterBrowserModal
         currentIndex={sectionIndex}
@@ -889,35 +883,10 @@ function EpubReader({
   }
 
   function toggleChrome() {
-    const viewport = readerViewport.current;
-    if (!viewport) {
-      onToggleChrome();
-      return;
-    }
-    viewport.measureInWindow((_x, viewportY) => {
-      pendingChromeAnchor.current = {
-        documentKey,
-        scrollOffset: latestScrollOffset.current,
-        viewportY,
-      };
-      onToggleChrome();
-    });
-  }
-
-  function restoreChromeScrollAnchor() {
-    const anchor = pendingChromeAnchor.current;
-    const viewport = readerViewport.current;
-    if (!anchor || !viewport) return;
-    requestAnimationFrame(() => {
-      viewport.measureInWindow((_x, viewportY) => {
-        if (pendingChromeAnchor.current !== anchor) return;
-        pendingChromeAnchor.current = null;
-        const offset = anchor.scrollOffset + viewportY - anchor.viewportY;
-        latestScrollOffset.current = Math.max(0, offset);
-        webViews.current
-          .get(anchor.documentKey)
-          ?.injectJavaScript(readerChromeScrollScript(offset));
-      });
+    chromeVisible.current = !chromeVisible.current;
+    chromeVisibility.value = withTiming(chromeVisible.current ? 1 : 0, {
+      duration: readerChromeAnimationDuration,
+      easing: ReanimatedEasing.out(ReanimatedEasing.cubic),
     });
   }
 
@@ -976,7 +945,7 @@ function ReaderControls({
   onShowAnnotations,
   onShowChapters,
   scope,
-  visible = true,
+  visibility,
 }: {
   book: BookRecord;
   annotationCount?: number;
@@ -987,16 +956,16 @@ function ReaderControls({
   onShowAnnotations?: () => void;
   onShowChapters?: () => void;
   scope: BookScope;
-  visible?: boolean;
+  visibility?: SharedValue<number>;
 }) {
   const router = useRouter();
-  if (!visible) return null;
 
   return (
     <ChapterControlsPanel
       expanded={expanded}
       header={header}
       onExpandedChange={onExpandedChange}
+      visibility={visibility}
     >
       <ReaderDetail text={detail} />
       <ReaderSecondaryActions
@@ -1011,6 +980,84 @@ function ReaderControls({
         }
       />
     </ChapterControlsPanel>
+  );
+}
+
+function EpubReaderHeader({
+  title,
+  visibility,
+}: {
+  title: string;
+  visibility: SharedValue<number>;
+}) {
+  const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const height = insets.top + readerHeaderToolbarHeight;
+  const visibilityStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: (visibility.value - 1) * height }],
+  }));
+
+  return (
+    <Reanimated.View
+      style={[
+        {
+          height,
+          left: 0,
+          position: "absolute",
+          right: 0,
+          top: 0,
+          zIndex: 10,
+        },
+        visibilityStyle,
+      ]}
+    >
+      <ReaderHeaderSurface />
+      <ReaderHeaderDivider />
+      <NativeHeaderBar
+        compact
+        leadingAction={{
+          label: "Back",
+          onPress: () => router.back(),
+          systemImage: "chevron.backward",
+        }}
+        style={{ marginTop: insets.top + readerHeaderContentOffset }}
+        title={title}
+      />
+    </Reanimated.View>
+  );
+}
+
+function ReaderHeaderSurface() {
+  const background = useColor("background");
+  const colorScheme = useAppColorScheme();
+  if (Platform.OS === "ios" && isLiquidGlassAvailable()) {
+    return (
+      <GlassView
+        colorScheme={colorScheme}
+        glassEffectStyle="regular"
+        pointerEvents="none"
+        style={absoluteFillStyle}
+      />
+    );
+  }
+  return (
+    <View
+      pointerEvents="none"
+      style={[absoluteFillStyle, { backgroundColor: background }]}
+    />
+  );
+}
+
+function ReaderHeaderDivider() {
+  const border = useColor("border");
+  return (
+    <View
+      pointerEvents="none"
+      style={[
+        readerHeaderDividerStyle,
+        { backgroundColor: border, height: readerHeaderHairlineWidth },
+      ]}
+    />
   );
 }
 
@@ -1053,6 +1100,24 @@ function ReaderDocumentLayer({
     </Animated.View>
   );
 }
+
+const readerChromeAnimationDuration = 160;
+const readerHeaderContentOffset = -5;
+const readerHeaderHairlineWidth = 1 / PixelRatio.get();
+const readerHeaderToolbarHeight = 54;
+const absoluteFillStyle = {
+  bottom: 0,
+  left: 0,
+  position: "absolute",
+  right: 0,
+  top: 0,
+} satisfies ViewStyle;
+const readerHeaderDividerStyle = {
+  bottom: 0,
+  left: 0,
+  position: "absolute",
+  right: 0,
+} satisfies ViewStyle;
 
 function addDocument(
   documents: Record<string, string>,
