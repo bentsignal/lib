@@ -22,6 +22,7 @@
     "@expo/ui": "~57.0.11",
     "@legendapp/list": "^3.3.5",
     "@lib/ebook-core": "workspace:*",
+    "@lib/mobile-convex": "workspace:*",
     "drizzle-orm": "^0.44.5",
     "expo": "~57.0.13",
     "expo-build-properties": "~57.0.11",

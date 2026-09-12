@@ -1,0 +1,46 @@
+{
+  "name": "@lib/mobile-convex",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./expo-sqlite": "./src/expo-sqlite.ts",
+    "./native": "./src/native.ts",
+    "./react": "./src/react.tsx",
+    "./server": "./src/server.ts",
+    "./testing": "./src/memory-storage.ts",
+    "./values": "./src/values.ts"
+  },
+  "scripts": {
+    "build": "tsc --noEmit",
+    "clean": "git clean -xdf .cache .turbo node_modules",
+    "format": "prettier --check . --ignore-path ../../.gitignore",
+    "format:fix": "prettier --write . --ignore-path ../../.gitignore",
+    "lint": "eslint --flag unstable_native_nodejs_ts_config",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "convex": "^1.45.0"
+  },
+  "devDependencies": {
+    "@lib/eslint-config": "workspace:*",
+    "@lib/prettier-config": "workspace:*",
+    "@lib/tsconfig": "workspace:*",
+    "@types/node": "catalog:",
+    "@types/react": "catalog:react19",
+    "eslint": "catalog:",
+    "expo": "~57.0.13",
+    "expo-sqlite": "~57.0.0",
+    "prettier": "catalog:",
+    "react": "catalog:react19",
+    "typescript": "catalog:",
+    "vitest": "^4.0.17"
+  },
+  "peerDependencies": {
+    "expo": ">=57",
+    "expo-sqlite": ">=15",
+    "react": ">=18"
+  },
+  "prettier": "@lib/prettier-config"
+}

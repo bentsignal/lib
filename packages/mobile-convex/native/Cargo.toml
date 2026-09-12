@@ -1,0 +1,22 @@
+[package]
+name = "mobile-convex-engine"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]
+convex_common = { package = "common", git = "https://github.com/get-convex/convex-backend", rev = "f6c5782907f1fde2bf4e28287b7357e34a51462c" }
+convex_sqlite = { package = "sqlite", git = "https://github.com/get-convex/convex-backend", rev = "f6c5782907f1fde2bf4e28287b7357e34a51462c" }
+futures = "0.3"
+
+[patch.crates-io]
+prometheus = { git = "https://github.com/get-convex/rust-prometheus", rev = "367f80d0d3678ed7989814fd5864598746a3b946" }
+tungstenite = { git = "https://github.com/danielsufrindisler/tungstenite-rs", rev = "eda0a0c5c15334feca45aec64af90fded2917cb7" }
+
+[profile.release]
+opt-level = "s"
+panic = "abort"
+strip = "symbols"
