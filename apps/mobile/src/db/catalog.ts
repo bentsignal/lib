@@ -1,7 +1,9 @@
 import { asc, desc, eq } from "drizzle-orm";
 
-import type { BookRecord, BookSection, EpubLocation } from "@lib/ebook-core";
+import type { BookRecord, EpubLocation } from "@lib/ebook-core";
 
+import { api } from "~/backend/api";
+import { mobileConvex } from "~/backend/client";
 import { db } from "./database";
 import {
   importBooks,
@@ -29,23 +31,7 @@ export {
 } from "./reader-annotations";
 
 export async function insertBook(book: BookRecord, scope: BookScope) {
-  await db.transaction(async (transaction) => {
-    if (scope === "library") {
-      await transaction.insert(libraryBooks).values(bookValues(book));
-      if (book.sections.length > 0) {
-        await transaction
-          .insert(librarySections)
-          .values(sectionValues(book.id, book.sections));
-      }
-      return;
-    }
-    await transaction.insert(importBooks).values(bookValues(book));
-    if (book.sections.length > 0) {
-      await transaction
-        .insert(importSections)
-        .values(sectionValues(book.id, book.sections));
-    }
-  });
+  await mobileConvex.mutation(api.books.insert, { book, scope });
 }
 
 export async function updateStoredBook(
@@ -58,78 +44,25 @@ export async function updateStoredBook(
     ...update,
     modifiedAt: new Date().toISOString(),
   };
-  await db.transaction(async (transaction) => {
-    if (scope === "library") {
-      await transaction
-        .update(libraryBooks)
-        .set(bookValues(next))
-        .where(eq(libraryBooks.id, book.id));
-      if (update.sections) {
-        await transaction
-          .delete(librarySections)
-          .where(eq(librarySections.bookId, book.id));
-        if (next.sections.length > 0) {
-          await transaction
-            .insert(librarySections)
-            .values(sectionValues(book.id, next.sections));
-        }
-      }
-      return;
-    }
-    await transaction
-      .update(importBooks)
-      .set(bookValues(next))
-      .where(eq(importBooks.id, book.id));
-    if (update.sections) {
-      await transaction
-        .delete(importSections)
-        .where(eq(importSections.bookId, book.id));
-      if (next.sections.length > 0) {
-        await transaction
-          .insert(importSections)
-          .values(sectionValues(book.id, next.sections));
-      }
-    }
-  });
+  await mobileConvex.mutation(api.books.replace, { book: next, scope });
 }
 
 export async function removeStoredBook(id: string, scope: BookScope) {
-  await db.transaction(async (transaction) => {
-    if (scope === "library") {
-      await transaction
-        .delete(librarySections)
-        .where(eq(librarySections.bookId, id));
+  await mobileConvex.mutation(api.books.remove, { bookId: id, scope });
+  if (scope === "library") {
+    await db.transaction(async (transaction) => {
       await transaction
         .delete(readingProgress)
         .where(eq(readingProgress.bookId, id));
       await transaction
         .delete(readerAnnotations)
         .where(eq(readerAnnotations.bookId, id));
-      await transaction.delete(libraryBooks).where(eq(libraryBooks.id, id));
-      return;
-    }
-    await transaction
-      .delete(importSections)
-      .where(eq(importSections.bookId, id));
-    await transaction.delete(importBooks).where(eq(importBooks.id, id));
-  });
+    });
+  }
 }
 
 export async function promoteStoredBooks(books: BookRecord[]) {
-  await db.transaction(async (transaction) => {
-    for (const book of books) {
-      await transaction.insert(libraryBooks).values(bookValues(book));
-      if (book.sections.length > 0) {
-        await transaction
-          .insert(librarySections)
-          .values(sectionValues(book.id, book.sections));
-      }
-      await transaction
-        .delete(importSections)
-        .where(eq(importSections.bookId, book.id));
-      await transaction.delete(importBooks).where(eq(importBooks.id, book.id));
-    }
-  });
+  await mobileConvex.mutation(api.books.promote, { books });
 }
 
 // eslint-disable-next-line complexity -- A partial progress update preserves each format's independent position fields.
@@ -202,6 +135,15 @@ export function importQueries() {
   };
 }
 
+export function readLegacyCatalog() {
+  const library = libraryQueries();
+  const imports = importQueries();
+  return {
+    imports: hydrateBooks(imports.books.all(), imports.sections.all()),
+    library: hydrateBooks(library.books.all(), library.sections.all()),
+  };
+}
+
 export function hydrateBooks(
   bookRows: (typeof libraryBooks.$inferSelect)[],
   sectionRows: (typeof librarySections.$inferSelect)[],
@@ -223,42 +165,6 @@ export function hydrateBooks(
     sourceFileName: row.sourceFileName,
     title: row.title,
   })) satisfies BookRecord[];
-}
-
-function bookValues(book: BookRecord) {
-  return {
-    author: book.author,
-    convertedEpubUri: book.convertedEpubUri,
-    coverFileName: book.coverFileName,
-    epubStructureVersion: book.epubStructureVersion,
-    epubLocations: book.epubLocations
-      ? JSON.stringify(book.epubLocations)
-      : undefined,
-    exportedUri: book.exportedUri,
-    fileSize: book.fileSize,
-    format: book.format,
-    id: book.id,
-    importedAt: book.importedAt,
-    modifiedAt: book.modifiedAt,
-    pageCount: book.pageCount,
-    sourceFileName: book.sourceFileName,
-    title: book.title,
-  };
-}
-
-function sectionValues(bookId: string, sections: BookSection[]) {
-  return sections.map((section, position) => ({
-    bookId,
-    endLocation: section.endLocation,
-    endPage: section.endPage,
-    href: section.href,
-    id: section.id,
-    included: section.included,
-    position,
-    startLocation: section.startLocation,
-    startPage: section.startPage,
-    title: section.title,
-  }));
 }
 
 function toSections(rows: (typeof librarySections.$inferSelect)[]) {

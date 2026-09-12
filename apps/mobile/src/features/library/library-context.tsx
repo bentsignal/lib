@@ -5,7 +5,6 @@ import * as Crypto from "expo-crypto";
 import { File } from "expo-file-system";
 import * as Haptics from "expo-haptics";
 import * as Sharing from "expo-sharing";
-import { useLiveQuery } from "drizzle-orm/expo-sqlite";
 import { createStore } from "rostra";
 
 import type { BookRecord } from "@lib/ebook-core";
@@ -14,14 +13,13 @@ import {
   buildEpubFromPdf,
   buildPdfEdition,
 } from "@lib/ebook-core";
+import { useQuery } from "@lib/mobile-convex/react";
 
 import type { PendingBookImport } from "./import-book-files";
 import type { CoverSource } from "./pick-book-cover";
 import type { BookScope } from "~/db/catalog";
+import { api } from "~/backend/api";
 import {
-  hydrateBooks,
-  importQueries,
-  libraryQueries,
   promoteStoredBooks,
   removeStoredBook,
   updateStoredBook,
@@ -49,10 +47,9 @@ import {
 } from "./library-storage";
 import { pickBookCover } from "./pick-book-cover";
 
-/* eslint-disable max-lines */
-
-const libraryQuerySet = libraryQueries();
-const importQuerySet = importQueries();
+const libraryArguments = { scope: "library" } as const;
+const importArguments = { scope: "import" } as const;
+const emptyBooks = new Array<BookRecord>();
 
 export type BookImportDraft = BookRecord;
 
@@ -62,22 +59,10 @@ function useInternalLibraryStore() {
     getLibraryActivity,
     getLibraryActivity,
   );
-  const libraryBooksResult = useLiveQuery(libraryQuerySet.books);
-  const librarySectionsResult = useLiveQuery(libraryQuerySet.sections);
-  const importBooksResult = useLiveQuery(importQuerySet.books);
-  const importSectionsResult = useLiveQuery(importQuerySet.sections);
-  const libraryBookRows = libraryBooksResult.data;
-  const librarySectionRows = librarySectionsResult.data;
-  const importBookRows = importBooksResult.data;
-  const importSectionRows = importSectionsResult.data;
-  const books = useMemo(
-    () => hydrateBooks(libraryBookRows, librarySectionRows),
-    [libraryBookRows, librarySectionRows],
-  );
-  const imports = useMemo(
-    () => hydrateBooks(importBookRows, importSectionRows),
-    [importBookRows, importSectionRows],
-  );
+  const libraryResult = useQuery(api.books.list, libraryArguments);
+  const importResult = useQuery(api.books.list, importArguments);
+  const books = libraryResult ?? emptyBooks;
+  const imports = importResult ?? emptyBooks;
   const pendingImports = useMemo(
     () => unresolvedPendingImports(activity.pendingImports, imports),
     [activity.pendingImports, imports],
@@ -93,12 +78,7 @@ function useInternalLibraryStore() {
     imports,
     pendingImports,
     isImporting: pendingImports.length > 0,
-    isReady: Boolean(
-      libraryBooksResult.updatedAt &&
-      librarySectionsResult.updatedAt &&
-      importBooksResult.updatedAt &&
-      importSectionsResult.updatedAt,
-    ),
+    isReady: libraryResult !== undefined && importResult !== undefined,
     addBooksToLibrary: () => addBooksToLibrary(imports),
     convertPdfToEpub: (id: string) => convertPdfToEpub(id, books),
     deleteBook: (id: string) => {

@@ -7,6 +7,7 @@ import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import * as SystemUI from "expo-system-ui";
 
+import { MobileBackendProvider } from "~/backend/mobile-backend-provider";
 import { DatabaseProvider } from "~/db/database-provider";
 import { LibraryStore } from "~/features/library/library-context";
 import {
@@ -48,37 +49,41 @@ export default function RootLayout() {
         <SafeAreaProvider>
           <ThemeProvider value={theme}>
             <DatabaseProvider>
-              <LibraryStore>
-                <Stack
-                  screenOptions={{
-                    contentStyle: { backgroundColor: background },
-                    headerBackButtonDisplayMode: "minimal",
-                    headerShadowVisible: false,
-                    headerStyle: { backgroundColor: background },
-                    headerTintColor: foreground,
-                  }}
-                >
-                  <Stack.Screen
-                    name="index"
-                    options={{ animation: "none", headerShown: false }}
+              <MobileBackendProvider>
+                <LibraryStore>
+                  <Stack
+                    screenOptions={{
+                      contentStyle: { backgroundColor: background },
+                      headerBackButtonDisplayMode: "minimal",
+                      headerShadowVisible: false,
+                      headerStyle: { backgroundColor: background },
+                      headerTintColor: foreground,
+                    }}
+                  >
+                    <Stack.Screen
+                      name="index"
+                      options={{ animation: "none", headerShown: false }}
+                    />
+                    <Stack.Screen
+                      name="(tabs)"
+                      options={{ animation: "none", headerShown: false }}
+                    />
+                    <Stack.Screen
+                      dangerouslySingular={(_, params) =>
+                        `${String(params.scope ?? "library")}:${String(params.id)}`
+                      }
+                      name="book/[id]/edit"
+                      options={{ title: "" }}
+                    />
+                    <Stack.Screen name="book/[id]/overview" />
+                    <Stack.Screen name="book/[id]/read" />
+                    <Stack.Screen name="book/[id]/section/[sectionId]" />
+                  </Stack>
+                  <StatusBar
+                    style={colorScheme === "dark" ? "light" : "dark"}
                   />
-                  <Stack.Screen
-                    name="(tabs)"
-                    options={{ animation: "none", headerShown: false }}
-                  />
-                  <Stack.Screen
-                    dangerouslySingular={(_, params) =>
-                      `${String(params.scope ?? "library")}:${String(params.id)}`
-                    }
-                    name="book/[id]/edit"
-                    options={{ title: "" }}
-                  />
-                  <Stack.Screen name="book/[id]/overview" />
-                  <Stack.Screen name="book/[id]/read" />
-                  <Stack.Screen name="book/[id]/section/[sectionId]" />
-                </Stack>
-                <StatusBar style={colorScheme === "dark" ? "light" : "dark"} />
-              </LibraryStore>
+                </LibraryStore>
+              </MobileBackendProvider>
             </DatabaseProvider>
           </ThemeProvider>
         </SafeAreaProvider>
